@@ -229,12 +229,18 @@ function normalizeRating(value: string | null | undefined) {
   return null;
 }
 
-function hasAnyNo(
+// Spec for rematch rules:
+//   - mutual "nope" (both said no)     → block forever
+//   - mutual "great" (both said yes)   → block forever
+//   - any other prior encounter         → 30-day cooldown, then eligible again
+//   - no prior encounter                → eligible
+function isMutualNo(
   rating: string | null | undefined,
   matchedUserRating: string | null | undefined
 ) {
   return (
-    normalizeRating(rating) === "nope" || normalizeRating(matchedUserRating) === "nope"
+    normalizeRating(rating) === "nope" &&
+    normalizeRating(matchedUserRating) === "nope"
   );
 }
 
@@ -248,6 +254,12 @@ function isMutualYes(
   );
 }
 
+/**
+ * True if a prior encounter exists that isn't a forever-block.
+ * Per spec, every such encounter triggers a 30-day cooldown before rematching.
+ * This includes yes/no, okay/anything, and one-sided ratings — anything that
+ * isn't mutual yes or mutual no.
+ */
 function isCooldownEligibleRematch(
   rating: string | null | undefined,
   matchedUserRating: string | null | undefined
@@ -255,15 +267,14 @@ function isCooldownEligibleRematch(
   const a = normalizeRating(rating);
   const b = normalizeRating(matchedUserRating);
 
-  if (!a || !b) return false;
-  if (a === "nope" || b === "nope") return false;
+  // No rating signal at all from either side — treat as if no encounter for cooldown purposes.
+  if (!a && !b) return false;
+
+  // Forever-block cases are handled by isMutualNo / isMutualYes; not a cooldown case.
+  if (a === "nope" && b === "nope") return false;
   if (a === "great" && b === "great") return false;
 
-  return (
-    (a === "okay" && b === "okay") ||
-    (a === "okay" && b === "great") ||
-    (a === "great" && b === "okay")
-  );
+  return true;
 }
 
 function isWithinLastNDays(dateString: string | null | undefined, days: number) {
@@ -335,11 +346,11 @@ async function getRematchBlockDecision(
     });
 
   for (const row of priorEncounters) {
-    if (hasAnyNo(row.rating, row.matched_user_rating)) {
+    if (isMutualNo(row.rating, row.matched_user_rating)) {
       return {
         error: null,
         blocked: true,
-        reason: "blocked_forever_no_rating",
+        reason: "blocked_forever_mutual_no",
       };
     }
 

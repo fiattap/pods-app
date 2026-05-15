@@ -2,9 +2,11 @@ export const TOTAL_ROUNDS = 3;
 export const ROUND_CONVERSATION_SECONDS = 5 * 60;
 export const ROUND_ENTRY_WINDOW_SECONDS = 60;
 export const ROUND_RATING_SECONDS = 15;
-export const ROUND_TRANSITION_SECONDS = 45;
-export const ROUND_LOBBY_BUFFER_SECONDS =
-  ROUND_TRANSITION_SECONDS - ROUND_RATING_SECONDS;
+// Spec: 15s rating + 60s lobby buffer between rounds = 75s total transition.
+// Lobby buffer gives late-arriving users a window to sync up for the next round.
+export const ROUND_LOBBY_BUFFER_SECONDS = 60;
+export const ROUND_TRANSITION_SECONDS =
+  ROUND_RATING_SECONDS + ROUND_LOBBY_BUFFER_SECONDS;
 export const ROUND_TOTAL_SECONDS =
   ROUND_CONVERSATION_SECONDS + ROUND_TRANSITION_SECONDS;
 export const PREOPEN_LOBBY_SECONDS = 5 * 60;
@@ -764,7 +766,7 @@ export function getPodPhaseState(
         currentRound: round,
         activeRound: round,
         canEnterRound: false,
-        shouldGoToDone: true,
+        shouldGoToDone: at >= timing.roundEndAt,
         secondsLeftInPhase: getSecondsUntil(timing.roundEndAt, at),
         phaseEndsAt: timing.roundEndAt,
         eventStartAt,
@@ -775,7 +777,7 @@ export function getPodPhaseState(
         nextRoundOpensAt: null,
         isOpenDay: true,
         isPreopen: false,
-        isNightOver: true,
+        isNightOver: false,
       };
     }
   }
