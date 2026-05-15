@@ -1078,6 +1078,8 @@ export default function PodsPage() {
     canonicalStatus.podId === podId &&
     canonicalStatus.roundNumber === safeCurrentRound;
   const canonicalStatusAllowsManualEntry = canonicalStatusAllowsMatchPost;
+  const effectiveIsNightOver =
+    isNightOver && !canonicalStatusAllowsManualEntry;
 
   useEffect(() => {
     autoForwardInFlightRef.current = false;
@@ -2114,7 +2116,7 @@ export default function PodsPage() {
 
   useEffect(() => {
     if (!city || isPreLaunch()) return;
-    if (isNightOver) return;
+    if (effectiveIsNightOver) return;
 
     const roundTiming = getRoundTiming(city, safeCurrentRound);
 
@@ -2129,7 +2131,7 @@ export default function PodsPage() {
       resetRetryState();
       clearTransientStatus();
     }
-  }, [city, safeCurrentRound, isWaiting, nowTick, isNightOver]);
+  }, [city, safeCurrentRound, isWaiting, nowTick, effectiveIsNightOver]);
 
   useEffect(() => {
     if (!isPreLaunch() && statusMsg === PODS_LAUNCH_LABEL) {
@@ -2138,11 +2140,11 @@ export default function PodsPage() {
   }, [statusMsg]);
 
   useEffect(() => {
-    if (!isNightOver) return;
+    if (!effectiveIsNightOver) return;
     stopLobbyActivity();
     setCurrentRound(1);
     setStatusMsg(`Next pod opens ${getNextPodOpenLabel(city)}`);
-  }, [city, isNightOver]);
+  }, [city, effectiveIsNightOver]);
 
   useEffect(() => {
     if (!city) return;
@@ -2346,7 +2348,7 @@ export default function PodsPage() {
     if (!authChecked || !podId) return;
     if (isNavigatingToRoomRef.current) return;
     if (isFinalizingMatch) return;
-    if (isNightOver) return;
+    if (effectiveIsNightOver) return;
 
     let cancelled = false;
 
@@ -2386,7 +2388,7 @@ export default function PodsPage() {
     handleMatched,
     isBootstrapping,
     isFinalizingMatch,
-    isNightOver,
+    effectiveIsNightOver,
     podId,
     safeCurrentRound,
     validatedRequestedRound,
@@ -2403,7 +2405,7 @@ export default function PodsPage() {
       return;
     }
 
-    if (isFinalizingMatch || isNavigatingToRoomRef.current || isNightOver) {
+    if (isFinalizingMatch || isNavigatingToRoomRef.current || effectiveIsNightOver) {
       clearPollingTimeout();
       return;
     }
@@ -2617,7 +2619,7 @@ export default function PodsPage() {
     city,
     handleMatched,
     isFinalizingMatch,
-    isNightOver,
+    effectiveIsNightOver,
     isWaiting,
     podId,
     requestedRound,
@@ -2629,7 +2631,7 @@ export default function PodsPage() {
   useEffect(() => {
     if (isPreLaunch()) return;
     if (!authChecked || !userId || !podId) return;
-    if (isFinalizingMatch || isNavigatingToRoomRef.current || isNightOver) return;
+    if (isFinalizingMatch || isNavigatingToRoomRef.current || effectiveIsNightOver) return;
 
     let cancelled = false;
 
@@ -2662,7 +2664,7 @@ export default function PodsPage() {
     city,
     handleMatched,
     isFinalizingMatch,
-    isNightOver,
+    effectiveIsNightOver,
     podId,
     safeCurrentRound,
     userId,
@@ -2671,7 +2673,7 @@ export default function PodsPage() {
   useEffect(() => {
     if (!authChecked || !userId || !podId || !city) return;
     if (recoveryPhase !== "ready") return;
-    if (isPreLaunch() || isNightOver) return;
+    if (isPreLaunch() || effectiveIsNightOver) return;
     if (isFinalizingMatch || isNavigatingToRoomRef.current) return;
     if (unmatchedAutoAdvanceInFlightRef.current) return;
     if (
@@ -2740,7 +2742,7 @@ export default function PodsPage() {
     checkForMatchedStatus,
     city,
     isFinalizingMatch,
-    isNightOver,
+    effectiveIsNightOver,
     isMatching,
     isWaiting,
     nowTick,
@@ -2777,7 +2779,7 @@ export default function PodsPage() {
       return;
     }
 
-    if (isNightOver) {
+    if (effectiveIsNightOver) {
       stopLobbyActivity();
       setCurrentRound(1);
       setErrorMsg(null);
@@ -3084,7 +3086,7 @@ export default function PodsPage() {
     handleMatched,
     isMatching,
     isNavigatingToRoomRef,
-    isNightOver,
+    effectiveIsNightOver,
     canonicalStatusAllowsMatchPost,
     routeToDone,
     safeCurrentRound,
@@ -3096,7 +3098,7 @@ export default function PodsPage() {
   const isOpenDay = isPodsOpenDay(city);
   const nextPodOpenLabel = getNextPodOpenLabel(city);
   const roundOneTiming = city ? getRoundTiming(city, 1) : null;
-  const podNightOver = isNightOver;
+  const podNightOver = effectiveIsNightOver;
   const nightHasStarted =
     !podNightOver && !!roundOneTiming && !roundOneTiming.isBeforeRoundStart;
   const isPreopenLobbyActive = isPreopenLobbyWindow(city, safeCurrentRound);
@@ -3180,7 +3182,7 @@ export default function PodsPage() {
       requestInFlightRef.current ||
       isNavigatingToRoomRef.current ||
       isMatching ||
-      isNightOver
+      effectiveIsNightOver
     ) {
       return;
     }
@@ -3191,7 +3193,7 @@ export default function PodsPage() {
     resetRetryState();
     setErrorMsg(null);
     void handleEnterPod();
-  }, [handleEnterPod, isMatching, isNightOver]);
+  }, [handleEnterPod, isMatching, effectiveIsNightOver]);
 
   const hasActiveMatchAttempt =
     enterAttemptCommittedRef.current ||
@@ -3208,7 +3210,7 @@ export default function PodsPage() {
       !isNavigatingToRoomRef.current &&
       !errorMsg &&
       !showRecoveryUi &&
-      !isNightOver);
+      !effectiveIsNightOver);
   const isAutoForwarding =
     autoForwardInFlightRef.current || safeStatusMsg === "Moving you forward...";
   const canonicalStatusText =
@@ -3259,13 +3261,15 @@ export default function PodsPage() {
           ? `${PODS_LAUNCH_LABEL}. Starting in ${formatLaunchCountdown(
               PODS_LAUNCH_AT
             )}`
-          : isNightOver
+          : effectiveIsNightOver
             ? secondsToNextPod !== null
               ? `Next pod opens ${nextPodOpenLabel} (${formatCountdownShort(
                   secondsToNextPod
                 )})`
               : `Next pod opens ${nextPodOpenLabel}`
-            : isBeforeCurrentRoundStart && !isPreopenLobbyActive
+            : isBeforeCurrentRoundStart &&
+                !isPreopenLobbyActive &&
+                canonicalStatus.phase !== "live"
               ? `Next pod opens in ${formatCountdown(
                   currentRoundTiming?.secondsUntilRoundStart ?? 0
                 )}`
@@ -3315,7 +3319,7 @@ export default function PodsPage() {
     !requestInFlightRef.current &&
     !isNavigatingToRoomRef.current &&
     !showStuckUi &&
-    !isNightOver &&
+    !effectiveIsNightOver &&
     !isPreLaunch();
 
   const buttonLabel =
@@ -3334,7 +3338,9 @@ export default function PodsPage() {
               ? "Enter the Pod"
               : isPreLaunch()
                 ? `Starts in ${formatLaunchCountdown(PODS_LAUNCH_AT)}`
-                : isBeforeCurrentRoundStart && !isPreopenLobbyActive
+                : isBeforeCurrentRoundStart &&
+                    !isPreopenLobbyActive &&
+                    canonicalStatus.phase !== "live"
                   ? `Starts in ${formatCountdown(
                       currentRoundTiming?.secondsUntilRoundStart ?? 0
                     )}`
@@ -3349,7 +3355,7 @@ export default function PodsPage() {
                         : "Enter the Pod";
 
   const isButtonDisabled =
-    (isNightOver && (secondsToNextPod ?? 0) > 0) ||
+    (effectiveIsNightOver && (secondsToNextPod ?? 0) > 0) ||
     isPreLaunch() ||
     safeCurrentRound > TOTAL_ROUNDS ||
     isNavigatingToRoomRef.current ||
@@ -3359,7 +3365,9 @@ export default function PodsPage() {
     hasStickyPendingAttempt ||
     !userId ||
     !canonicalStatusAllowsManualEntry ||
-    (isBeforeCurrentRoundStart && !isPreopenLobbyActive);
+    (isBeforeCurrentRoundStart &&
+      !isPreopenLobbyActive &&
+      canonicalStatus.phase !== "live");
 
   void nowTick;
   void mountedRef.current;
@@ -3478,7 +3486,7 @@ export default function PodsPage() {
                   )}
                 </>
               ) : showNormalLobbyUi ? (
-                isNightOver && secondsToNextPod !== null && secondsToNextPod > 0 ? (
+                effectiveIsNightOver && secondsToNextPod !== null && secondsToNextPod > 0 ? (
                   <button
                     type="button"
                     disabled
@@ -3535,7 +3543,7 @@ export default function PodsPage() {
           </div>
 
           <p className="text-center text-zinc-500 text-[10px] md:text-xs max-w-md">
-            {isNightOver
+            {effectiveIsNightOver
               ? `Next pod opens ${nextPodOpenLabel}${
                   secondsToNextPod != null
                     ? ` (${formatCountdownShort(secondsToNextPod)})`

@@ -89,7 +89,8 @@ function buildStatus(params: {
   launchLabel?: string | null;
   recoverableError?: string;
 }) {
-  const closedForTonight = params.phase === "finished";
+  const closedForTonight =
+    params.phase === "finished" && params.shouldGoToDone === true;
   const hasActiveSession =
     params.hasActiveSession ??
     (params.state === "matched" || params.state === "waiting");
