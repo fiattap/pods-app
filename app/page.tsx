@@ -8,7 +8,12 @@ type PrimaryCTAProps = React.ComponentProps<"a"> & {
   disabled?: boolean;
 };
 
-const PODS_LAUNCH_AT = new Date("2026-05-12T20:00:00-07:00");
+// Launch is anchored to 8pm Eastern (NYC cohort opens first; LA cohort still
+// has its own 8pm PT pod that day, but the global "we're live" moment is when
+// the first cohort goes live). Once this passes, the banner switches from
+// "LAUNCHING …" to the rolling "NEXT POD — [day]" countdown.
+const PODS_LAUNCH_AT = new Date("2026-05-31T20:00:00-04:00");
+const PODS_LAUNCH_LABEL = "LAUNCHING MAY 31 · 8PM";
 const PODS_TIME_ZONE = "America/Los_Angeles";
 const EVENT_START_HOUR = 20;
 const ALLOWED_POD_DAYS = ["Tuesday", "Thursday", "Sunday"] as const;
@@ -116,7 +121,7 @@ export default function HomePage() {
 
   const bannerText = useMemo(() => {
     if (prelaunch) {
-      return "LAUNCHING MAY 12 · 8PM";
+      return PODS_LAUNCH_LABEL;
     }
 
     return getNextPodBannerLabel(now);

@@ -12,8 +12,8 @@ export const ROUND_TOTAL_SECONDS =
 export const PREOPEN_LOBBY_SECONDS = 5 * 60;
 export const EVENT_START_HOUR = 20;
 export const ALLOWED_POD_DAYS = ["Tuesday", "Thursday", "Sunday"] as const;
-export const PODS_LAUNCH_AT = new Date("2026-05-12T20:00:00-04:00");
-export const PODS_LAUNCH_LABEL = "Launch May 12 at 8PM";
+export const PODS_LAUNCH_AT = new Date("2026-05-31T20:00:00-04:00");
+export const PODS_LAUNCH_LABEL = "Launch May 31 at 8PM ET";
 
 export type PodCity = string | null | undefined;
 export type AllowedPodDay = (typeof ALLOWED_POD_DAYS)[number];
