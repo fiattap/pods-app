@@ -1,11 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  ROUND_LOBBY_BUFFER_SECONDS,
-  ROUND_RATING_SECONDS,
-  TOTAL_ROUNDS,
-} from "@/lib/pods/timing";
+import { ROUND_LOBBY_BUFFER_SECONDS, TOTAL_ROUNDS } from "@/lib/pods/timing";
 import type { PodPhase, PodStatus } from "./usePodStatus";
 
 /**
@@ -42,8 +38,6 @@ export type LobbyClock = {
   /** Whole seconds left in the *current* server phase. Mostly diagnostic; prefer secondsUntilNextRound. */
   secondsLeftInPhase: number | null;
 };
-
-const TRANSITION_SECONDS = ROUND_RATING_SECONDS + ROUND_LOBBY_BUFFER_SECONDS;
 
 function formatMinutesSeconds(totalSeconds: number) {
   const safe = Math.max(0, Math.floor(totalSeconds));
@@ -137,10 +131,14 @@ function secondsUntilNextRoundFromStatus(status: PodStatus): number | null {
       // The between_rounds phase ends at the next round's start.
       return status.secondsLeftInPhase ?? null;
     case "live":
-      // Time until the *next* round's start = time until this round ends + transition.
+      // `secondsUntilRoundEnd` is computed against `roundEndAt`, which is
+      // `roundStartAt + ROUND_TOTAL_SECONDS` — and ROUND_TOTAL_SECONDS already
+      // includes the 75s transition (rating + lobby buffer). So roundEndAt of
+      // round N == roundStartAt of round N+1. Adding the transition again
+      // would double-count it (and was the cause of the visible 2:30 → 1:15
+      // jump at the live → rating boundary).
       // Only meaningful if the user is sitting at the lobby (missed_round).
-      if (status.secondsUntilRoundEnd == null) return null;
-      return status.secondsUntilRoundEnd + TRANSITION_SECONDS;
+      return status.secondsUntilRoundEnd ?? null;
     case "finished":
     case "closed":
     default:

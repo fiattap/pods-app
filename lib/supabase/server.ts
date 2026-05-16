@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { log } from "@/lib/log";
 
 export async function createClient() {
   const cookieStore = await cookies();
@@ -19,7 +20,7 @@ export async function createClient() {
               cookieStore.set(name, value, options);
             }
           } catch (error) {
-            console.warn("[supabase/server] failed to set cookies", error);
+            log.warn("[supabase/server] failed to set cookies", error);
           }
         },
       },

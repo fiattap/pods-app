@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { TOTAL_ROUNDS } from "@/lib/pods/timing";
+import { log } from "@/lib/log";
 
 type Outcome = "match" | "pass";
 
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
     const supabase = await createClient();
     const body = await request.json().catch(() => null);
 
-    console.log("[pods/result] request body", body);
+    log.debug("[pods/result] request body", body);
 
     const roomId = typeof body?.roomId === "string" ? body.roomId : null;
     const outcome = normalizeOutcome(body?.outcome);

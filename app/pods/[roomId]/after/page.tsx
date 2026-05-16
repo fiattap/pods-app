@@ -3,7 +3,9 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { TOTAL_ROUNDS, getPodsSessionStorageRoundKey } from "@/lib/pods/timing";
+import { TOTAL_ROUNDS } from "@/lib/pods/timing";
+import { usePodStatus } from "@/lib/pods/hooks/usePodStatus";
+import { log } from "@/lib/log";
 
 type Rating = "great" | "okay" | "nope" | null;
 
@@ -43,8 +45,6 @@ type PodRoomDetailsResponse = {
 
 const PROCEED_BUFFER_SECONDS = 15;
 const FEEDBACK_SAVE_RECOVERY_MS = 5000;
-const FORWARD_HANDOFF_ROUND_KEY = "pods_forward_handoff_round";
-const FORWARD_HANDOFF_AT_KEY = "pods_forward_handoff_at";
 
 async function getResolvedAfterUser() {
   try {
@@ -56,7 +56,7 @@ async function getResolvedAfterUser() {
       return { user: session.user, source: "session" as const };
     }
   } catch (error) {
-    console.warn("[pods/after] getSession failed", error);
+    log.warn("[pods/after] getSession failed", error);
   }
 
   try {
@@ -73,29 +73,10 @@ async function getResolvedAfterUser() {
       return { user, source: "getUser" as const };
     }
   } catch (error) {
-    console.warn("[pods/after] getUser fallback failed", error);
+    log.warn("[pods/after] getUser fallback failed", error);
   }
 
   return { user: null, source: "none" as const };
-}
-
-function persistLatestRound(round: number) {
-  if (typeof window === "undefined") return;
-
-  const storageKey = getPodsSessionStorageRoundKey();
-  const storedRound = Number(window.sessionStorage.getItem(storageKey) || "0");
-  const safeStoredRound =
-    Number.isFinite(storedRound) && storedRound > 0 ? storedRound : 0;
-  const latestRound = Math.max(safeStoredRound, round);
-
-  window.sessionStorage.setItem(storageKey, String(latestRound));
-}
-
-function persistForwardHandoffRound(round: number) {
-  if (typeof window === "undefined") return;
-
-  window.sessionStorage.setItem(FORWARD_HANDOFF_ROUND_KEY, String(round));
-  window.sessionStorage.setItem(FORWARD_HANDOFF_AT_KEY, String(Date.now()));
 }
 
 export default function FeedbackPage() {
@@ -182,7 +163,7 @@ export default function FeedbackPage() {
           setCompletedRound(resolvedRound);
           lockedRoundRef.current = resolvedRound;
         } else {
-          console.warn("[pods/after] room round lookup fallback", {
+          log.warn("[pods/after] room round lookup fallback", {
             roomId,
             status: res.status,
             data,
@@ -228,7 +209,7 @@ export default function FeedbackPage() {
       if (cancelled) return;
 
       if (!authUser) {
-        console.warn("AFTER PAGE PROFILE AUTH UNRESOLVED", { source });
+        log.warn("AFTER PAGE PROFILE AUTH UNRESOLVED", { source });
         setAuthLoadFailed(true);
         setIsReady(true);
         return;
@@ -315,7 +296,7 @@ export default function FeedbackPage() {
   }, [roomId]);
 
   async function resetQueueForCurrentUser(targetRound: number) {
-    console.log("[pods/after] skipping client queue reset", {
+    log.debug("[pods/after] skipping client queue reset", {
       targetRound,
     });
   }
@@ -519,7 +500,7 @@ export default function FeedbackPage() {
 
       const contactValue = shareSavedContact ? latestSavedContact : null;
 
-      console.log("[CONTACT DEBUG]", {
+      log.debug("[CONTACT DEBUG]", {
         roomId,
         round: currentRound,
         rawInput: contact,
@@ -603,20 +584,13 @@ export default function FeedbackPage() {
       return;
     }
 
-    try {
-      const nextRound = Math.min(completedRound + 1, TOTAL_ROUNDS);
-      persistLatestRound(nextRound);
-      persistForwardHandoffRound(nextRound);
-      setCurrentRoundState(nextRound);
-      router.replace(`/pods?round=${nextRound}`);
-    } catch (err) {
-      console.error("CONTINUE QUEUE ERROR", err);
-      const nextRound = Math.min(completedRound + 1, TOTAL_ROUNDS);
-      persistLatestRound(nextRound);
-      persistForwardHandoffRound(nextRound);
-      setCurrentRoundState(nextRound);
-      router.replace(`/pods?round=${nextRound}`);
-    }
+    // The new lobby drives everything off /api/pods/status, so the older
+    // sessionStorage handoff (FORWARD_HANDOFF_*, pods_latest_round) is dead
+    // code as a coordination signal. We just route to /pods and the lobby
+    // self-syncs to the correct round on its next status poll.
+    const nextRound = Math.min(completedRound + 1, TOTAL_ROUNDS);
+    setCurrentRoundState(nextRound);
+    router.replace(`/pods?round=${nextRound}`);
   }, [completedRound, feedbackSaved, router]);
 
   useEffect(() => {
@@ -634,6 +608,42 @@ export default function FeedbackPage() {
 
     return () => clearInterval(interval);
   }, [feedbackSaved, completedRound, proceedSecondsLeft, handleContinue]);
+
+  // Spec: rating page is capped at 15 seconds total. After 15s, route the
+  // user off — whether they submitted feedback or not, whether they finished
+  // the pod normally or left early. This is the SINGLE source of timing for
+  // the rating window; nothing depends on server phase here, because the
+  // server's "rating" phase only fires for normal pod completion (not for
+  // early leavers, who arrive here while phase is still "live").
+  //
+  // Works in parallel with the existing post-submit auto-continue effect: a
+  // ref guard prevents double-navigation if both fire near-simultaneously.
+  const { status: livePodStatus } = usePodStatus();
+  const hasAutoRoutedRef = useRef(false);
+  const [secondsLeftOnRatingPage, setSecondsLeftOnRatingPage] = useState(15);
+  useEffect(() => {
+    if (hasAutoRoutedRef.current) return;
+    if (secondsLeftOnRatingPage > 0) {
+      const id = setInterval(
+        () => setSecondsLeftOnRatingPage((s) => Math.max(0, s - 1)),
+        1000
+      );
+      return () => clearInterval(id);
+    }
+
+    // Timer hit 0 — route. Pick the destination based on whether the night
+    // is done. We prefer the server's signal when available, falling back to
+    // the local completedRound count if status hasn't arrived yet.
+    hasAutoRoutedRef.current = true;
+    const nightOver =
+      livePodStatus?.shouldGoToDone === true ||
+      (completedRound != null && completedRound >= TOTAL_ROUNDS);
+    if (nightOver) {
+      router.replace("/pods/done");
+    } else {
+      router.replace("/pods");
+    }
+  }, [secondsLeftOnRatingPage, livePodStatus, completedRound, router]);
 
   async function handleBackToLobby() {
     router.replace("/pods");
@@ -693,7 +703,7 @@ export default function FeedbackPage() {
     if (isReady) return;
 
     const timeout = setTimeout(() => {
-      console.warn("[pods/after] safe ready fallback", {
+      log.warn("[pods/after] safe ready fallback", {
         roomId,
         roundNumber,
       });

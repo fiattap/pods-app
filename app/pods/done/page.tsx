@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase/client";
 import { TOTAL_ROUNDS } from "@/lib/pods/timing";
+import { markRevealDismissed as setRevealDismissedFlag } from "@/lib/pods/revealDismissed";
+import { usePodStatus } from "@/lib/pods/hooks/usePodStatus";
+import { log } from "@/lib/log";
 
 type MatchResult = {
   userId: string;
@@ -63,11 +66,17 @@ type PodStatusResponse = {
 
 type RevealPhase = "loading" | "sponsor" | "countdown" | "revealed";
 
-const RESULT_RETRY_ATTEMPTS = 8;
+// Inner retry: how many times we re-check pod_feedback per room/round before
+// returning "waiting". Originally 8 (≈10s per round) to tolerate slow writes
+// in race conditions; 3 (≈3.6s) is plenty now that match results write fast.
+const RESULT_RETRY_ATTEMPTS = 3;
 const RESULT_RETRY_DELAY_MS = 1200;
+// Cap outer retries (each one re-runs the full per-room finalize loop) so
+// the page falls through to "show what we have" if a match never submits
+// feedback. Total wait ≈ MAX_OUTER_RETRIES * (per-room inner retries +
+// RESULT_RETRY_DELAY_MS), bounded at roughly 10–15s before we give up.
+const MAX_OUTER_RETRIES = 2;
 const PHOTO_BUCKET = "profile-photos";
-const FORWARD_HANDOFF_ROUND_KEY = "pods_forward_handoff_round";
-const FORWARD_HANDOFF_AT_KEY = "pods_forward_handoff_at";
 const SPONSOR_AUTO_CONTINUE_MS = 6500;
 const SPONSOR_BY_POD_ID: Record<string, string> = {
   "pods_nyc_2026-05-14": "/sponsors/nyc/2026-05-14.png",
@@ -199,7 +208,7 @@ async function isPodNightFinishedForDonePage() {
     });
 
     if (!response.ok) {
-      console.warn("[DONE RESULT DEBUG] pod status check failed", {
+      log.warn("[DONE RESULT DEBUG] pod status check failed", {
         status: response.status,
         statusText: response.statusText,
       });
@@ -288,6 +297,15 @@ async function getSignedPhotoUrl(photoPath: string | null) {
 
 export default function PodsDonePage() {
   const router = useRouter();
+  // Pulled exclusively for `pod.podId` so the dismissed-reveal flag can be
+  // keyed to this exact pod night. Without this, a click handler firing
+  // before the page has resolved its own city/podId would write a flag the
+  // lobby couldn't match. Polling at the default cadence is fine — the
+  // value we care about (podId) doesn't change during a pod night.
+  const { status: pod } = usePodStatus();
+  function markRevealDismissed() {
+    setRevealDismissedFlag(pod?.podId);
+  }
 
   const [loading, setLoading] = useState(true);
   const [matches, setMatches] = useState<MatchResult[]>([]);
@@ -305,6 +323,13 @@ export default function PodsDonePage() {
     string | null
   >(null);
   const resultRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Bounded outer-retry counter: caps how many times we re-poll for the
+  // OTHER user's feedback before giving up and showing whatever results
+  // are already finalized. Without this cap the page polls forever when
+  // a match left without rating, which is what produced the "Finalizing
+  // your results" infinite spinner. Resets on every fresh loadResults
+  // entry that doesn't immediately re-schedule a retry.
+  const outerRetryCountRef = useRef(0);
 
   const podId = useMemo(() => getPodIdForCurrentSession(city), [city]);
 
@@ -380,7 +405,7 @@ export default function PodsDonePage() {
 
       const roomFeedbackRows = (roomFeedbackRowsRaw ?? []) as PodFeedbackRow[];
 
-      console.log("[DONE RESULT DEBUG] feedback rows", {
+      log.debug("[DONE RESULT DEBUG] feedback rows", {
         roomId: targetRoomId,
         round: targetRound,
         count: roomFeedbackRows.length,
@@ -395,7 +420,7 @@ export default function PodsDonePage() {
       );
 
       if (!feedbackA || !feedbackB) {
-        console.log("[DONE RESULT DEBUG] waiting for both users", {
+        log.debug("[DONE RESULT DEBUG] waiting for both users", {
           roomId: targetRoomId,
           round: targetRound,
           hasA: !!feedbackA,
@@ -444,7 +469,7 @@ export default function PodsDonePage() {
         return "error";
       }
 
-      console.log("[DONE RESULT DEBUG] pod_results written", {
+      log.debug("[DONE RESULT DEBUG] pod_results written", {
         roomId: targetRoomId,
         round: targetRound,
         outcome,
@@ -520,7 +545,7 @@ export default function PodsDonePage() {
       );
       const pendingRounds = new Set<number>();
 
-      console.log("[DONE RESULT DEBUG] finalizing room rounds", uniqueRoomRounds);
+      log.debug("[DONE RESULT DEBUG] finalizing room rounds", uniqueRoomRounds);
 
       for (const item of uniqueRoomRounds) {
         const finalized = await waitForAndFinalizeResults(
@@ -529,7 +554,7 @@ export default function PodsDonePage() {
         );
 
         if (!finalized) {
-          console.log("[DONE RESULT DEBUG] room round not finalized yet", item);
+          log.debug("[DONE RESULT DEBUG] room round not finalized yet", item);
           pendingRounds.add(item.roundNumber);
         }
       }
@@ -614,7 +639,7 @@ export default function PodsDonePage() {
           if (cancelled) return;
 
           if (podNightFinished) {
-            console.log(
+            log.debug(
               "[DONE RESULT DEBUG] staying on done page because pod night is finished",
               {
                 highestSubmittedRound,
@@ -623,22 +648,15 @@ export default function PodsDonePage() {
               }
             );
           } else {
-            console.log("[DONE RESULT DEBUG] returning user to next round lobby", {
+            log.debug("[DONE RESULT DEBUG] returning user to next round lobby", {
               highestSubmittedRound,
               nextRound,
               pendingRounds: finalizationSummary.pendingRounds,
             });
 
-            if (nextRound === 3 && typeof window !== "undefined") {
-              window.sessionStorage.setItem(FORWARD_HANDOFF_ROUND_KEY, "3");
-              window.sessionStorage.setItem(
-                FORWARD_HANDOFF_AT_KEY,
-                String(Date.now())
-              );
-              router.replace("/pods?round=3");
-              return;
-            }
-
+            // The new lobby is driven by /api/pods/status, not by the older
+            // FORWARD_HANDOFF sessionStorage signaling. Just route to /pods —
+            // it'll self-sync to the correct round on its next status poll.
             router.replace(`/pods?round=${nextRound}`);
             return;
           }
@@ -648,19 +666,43 @@ export default function PodsDonePage() {
           highestSubmittedRound === TOTAL_ROUNDS &&
           finalizationSummary.pendingRounds.length > 0
         ) {
-          console.log(
-            "[DONE RESULT DEBUG] final round not fully finalized yet, retrying",
-            {
-              pendingRounds: finalizationSummary.pendingRounds,
-            }
-          );
+          // Bounded retry: don't poll forever waiting for a match who left
+          // without rating. After MAX_OUTER_RETRIES we fall through and
+          // render whatever's already in pod_results — rounds with no
+          // counter-rating just won't appear in the user's reveal list,
+          // which is the right outcome (a no_match-by-omission).
+          if (outerRetryCountRef.current >= MAX_OUTER_RETRIES) {
+            log.debug(
+              "[DONE RESULT DEBUG] outer retry budget exhausted; proceeding with partial results",
+              {
+                attempts: outerRetryCountRef.current,
+                pendingRounds: finalizationSummary.pendingRounds,
+              }
+            );
+            outerRetryCountRef.current = 0;
+            // Fall through to the pod_results query below.
+          } else {
+            outerRetryCountRef.current += 1;
+            log.debug(
+              "[DONE RESULT DEBUG] final round not fully finalized yet, retrying",
+              {
+                attempt: outerRetryCountRef.current,
+                maxAttempts: MAX_OUTER_RETRIES,
+                pendingRounds: finalizationSummary.pendingRounds,
+              }
+            );
 
-          resultRetryTimeoutRef.current = setTimeout(() => {
-            if (!cancelled) {
-              void loadResults();
-            }
-          }, RESULT_RETRY_DELAY_MS);
-          return;
+            resultRetryTimeoutRef.current = setTimeout(() => {
+              if (!cancelled) {
+                void loadResults();
+              }
+            }, RESULT_RETRY_DELAY_MS);
+            return;
+          }
+        } else {
+          // Successful pass-through (no pending rounds): reset the counter so
+          // a future re-entry into the retry branch starts fresh.
+          outerRetryCountRef.current = 0;
         }
 
         const roomIdsFromThisUser = Array.from(
@@ -992,7 +1034,10 @@ export default function PodsDonePage() {
                 </h1>
                 <p className="text-sm text-red-300">{errorMsg}</p>
                 <button
-                  onClick={() => router.push("/pods")}
+                  onClick={() => {
+                    markRevealDismissed();
+                    router.push("/pods");
+                  }}
                   className="mt-6 w-full rounded-full bg-pink-500 px-6 py-3 text-sm font-semibold shadow-[0_0_25px_rgba(255,20,147,0.5)] transition hover:bg-pink-400"
                 >
                   Back to Lobby
@@ -1183,7 +1228,10 @@ export default function PodsDonePage() {
 
                 <div className="mt-7 flex flex-col gap-3 md:mt-8">
                   <button
-                    onClick={() => router.push("/pods")}
+                    onClick={() => {
+                    markRevealDismissed();
+                    router.push("/pods");
+                  }}
                     className="w-full rounded-full bg-pink-500 px-6 py-3 text-sm font-semibold shadow-[0_0_25px_rgba(255,20,147,0.5)] transition hover:bg-pink-400"
                   >
                     Back to Lobby
@@ -1222,7 +1270,10 @@ export default function PodsDonePage() {
 
                 <div className="mt-7 flex flex-col gap-3 md:mt-8">
                   <button
-                    onClick={() => router.push("/pods")}
+                    onClick={() => {
+                    markRevealDismissed();
+                    router.push("/pods");
+                  }}
                     className="w-full rounded-full bg-pink-500 px-6 py-3 text-sm font-semibold shadow-[0_0_25px_rgba(255,20,147,0.5)] transition hover:bg-pink-400"
                   >
                     Back to Lobby

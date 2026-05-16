@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { log } from "@/lib/log";
 
 function getUserWithTimeout(timeoutMs: number) {
   return Promise.race([
@@ -29,7 +30,7 @@ function LoginContent() {
 
     async function checkSession() {
       for (let attempt = 1; attempt <= 4; attempt++) {
-        console.log("[login] auth restore attempt", { attempt });
+        log.debug("[login] auth restore attempt", { attempt });
 
         try {
           const {
@@ -40,7 +41,7 @@ function LoginContent() {
           if (cancelled) return;
 
           if (user) {
-            console.log("[login] session found, routing to next", {
+            log.debug("[login] session found, routing to next", {
               userId: user.id,
               next,
             });
@@ -50,14 +51,14 @@ function LoginContent() {
           }
 
           if (error) {
-            console.warn("[login] auth restore attempt failed", {
+            log.warn("[login] auth restore attempt failed", {
               attempt,
               error,
             });
           }
         } catch (error) {
           if (cancelled) return;
-          console.warn("[login] auth restore attempt failed", { attempt, error });
+          log.warn("[login] auth restore attempt failed", { attempt, error });
         }
 
         if (attempt < 4) {
@@ -65,7 +66,7 @@ function LoginContent() {
         }
       }
 
-      console.warn("[login] no session after retries, showing login UI");
+      log.warn("[login] no session after retries, showing login UI");
 
       if (!cancelled) {
         setIsLoading(false);
@@ -84,7 +85,7 @@ function LoginContent() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        console.log("[login] auth state changed, routing to next", { next });
+        log.debug("[login] auth state changed, routing to next", { next });
         router.replace(next);
       }
     });

@@ -17,6 +17,8 @@ import {
 import { usePodStatus } from "@/lib/pods/hooks/usePodStatus";
 import { usePhaseClock } from "@/lib/pods/hooks/usePhaseClock";
 import { useEnterPod } from "@/lib/pods/hooks/useEnterPod";
+import { isRevealDismissed } from "@/lib/pods/revealDismissed";
+import { clearLegacyPodsStorage } from "@/lib/pods/clearLegacyStorage";
 
 /**
  * Pod lobby page.
@@ -52,6 +54,16 @@ export default function PodsPage() {
   const currentRound = pod?.currentRound ?? 1;
   const safeCurrentRound = Math.min(Math.max(currentRound, 1), TOTAL_ROUNDS);
 
+  // --- Side effect 0: sweep legacy sessionStorage cruft on mount -----------
+  // Earlier builds of the pods flow used sessionStorage as state coordination
+  // (FORWARD_HANDOFF, SKIP_RESTORE, latest_round, etc.). The new code ignores
+  // those keys but they accumulate across testing runs and confuse debugging.
+  // Cleared once on mount so each session starts with just the keys the new
+  // flow actually uses (currently: pods_reveal_dismissed).
+  useEffect(() => {
+    clearLegacyPodsStorage();
+  }, []);
+
   // --- Side effect 1: redirect to /login when signed out -------------------
   const [hasRedirectedToLogin, setHasRedirectedToLogin] = useState(false);
   useEffect(() => {
@@ -79,16 +91,49 @@ export default function PodsPage() {
   }, [pod, hasNavigatedToRoom, router]);
 
   // --- Side effect 3: navigate to /pods/done when night is over ------------
-  // shouldGoToDone is the server's canonical signal that the user is finished
-  // for the night (either round 3 ended, or round 3 had no match → reveal).
+  // Two paths land the user on the reveal page:
+  //   (a) Server's authoritative shouldGoToDone (phase === "finished")
+  //   (b) Round 3's entry window closed without a match — per spec, "if
+  //       there's no match after 60 seconds [in round 3], you get routed
+  //       to the reveal page." The server still says phase === "live" for
+  //       the rest of the round, so we don't wait for shouldGoToDone here.
+  //
+  // Path (b) is detected by usePhaseClock returning moment="missed_round"
+  // with upcomingRound=null (which only happens when we're past round 3's
+  // entry window without a match — there is no "next" round to count down to).
+  // "Tonight is done from this user's perspective." Three trigger paths:
+  //   (a) Server-canonical: pod.shouldGoToDone (phase === "finished")
+  //   (b) Server-canonical: pod.phase === "finished"
+  //   (c) Round 3's entry window closed without a match — server still says
+  //       phase === "live" for the rest of round 3, so we have to derive this
+  //       client-side via clock.moment === "missed_round" + upcomingRound=null.
+  //
+  // Used by both the redirect-to-reveal effect AND the lobby UI rendering.
+  // Single source of truth so they can't disagree.
+  const tonightIsDone =
+    !!pod &&
+    (pod.shouldGoToDone === true ||
+      pod.phase === "finished" ||
+      (clock.moment === "missed_round" && clock.upcomingRound === null));
+
+  // Whether the user has explicitly viewed and dismissed tonight's reveal.
+  // We compute this each render (rather than cache it as state) because the
+  // sessionStorage value can change between renders (e.g., they came back
+  // from /pods/done in the same tab). Keyed by the server's podId so each
+  // pod night has its own dismissal state.
+  const revealDismissed = isRevealDismissed(pod?.podId);
+
   const [hasNavigatedToDone, setHasNavigatedToDone] = useState(false);
   useEffect(() => {
-    if (!pod) return;
-    if (!pod.shouldGoToDone) return;
     if (hasNavigatedToDone) return;
+    if (!tonightIsDone) return;
+    // Respect the user's explicit "I've seen reveal, leave me alone" choice.
+    // The flag is session-scoped; closing the tab clears it.
+    if (revealDismissed) return;
+
     setHasNavigatedToDone(true);
     router.push("/pods/done");
-  }, [pod, hasNavigatedToDone, router]);
+  }, [tonightIsDone, revealDismissed, hasNavigatedToDone, router]);
 
   // --- Side effect 4: 1Hz tick for "long" countdowns -----------------------
   // Drives two displays:
@@ -185,7 +230,11 @@ export default function PodsPage() {
   // let the missed_round moment + countdown take over (see usePhaseClock).
   const isWaiting =
     pod?.state === "waiting" && pod?.entryWindowOpen === true;
-  const isFinished = pod?.phase === "finished" || pod?.closedForTonight;
+  // From the user's perspective, the night is done if either the server says
+  // so OR they've dismissed tonight's reveal. Both paths land on the same
+  // "next-pod-night countdown + view-reveal-link" lobby UI.
+  const isFinished =
+    pod?.phase === "finished" || pod?.closedForTonight || tonightIsDone;
   const nextPodOpenLabel = getNextPodOpenLabel(city);
   const buttonEnabled =
     !!pod &&
@@ -225,7 +274,24 @@ export default function PodsPage() {
     if (isWaiting) return "Looking for a match…";
     // The card already shows the timer; give the status line a different role.
     if (clock.moment === "missed_round") {
-      return `Missed round ${safeCurrentRound}. You'll be back in the lobby for the next one.`;
+      // Round 3 missed = night over. Two sub-cases:
+      //   - Reveal not yet dismissed: redirect is about to fire, copy promises it.
+      //   - Reveal already dismissed: redirect is intentionally suppressed; copy
+      //     reflects the actual end state instead of lying about a transition.
+      if (clock.upcomingRound === null) {
+        if (revealDismissed) {
+          return "Tonight's pods are done. See you next time.";
+        }
+        return `Round ${safeCurrentRound} just ended. Bringing you to the reveal…`;
+      }
+      // Deliberately neutral about *why* they're at the lobby. Three paths
+      // land here and they look identical client-side:
+      //   - Never entered the round (truly missed)
+      //   - Entered + matched + left early (rated, returned to lobby)
+      //   - Entered + got no match within the 60s window
+      // Saying "missed" is wrong for the latter two; the countdown card
+      // already carries the "next pod opens in X:XX" message.
+      return "You're in the lobby. The next pod opens shortly.";
     }
     if (clock.moment === "between_rounds") {
       return `Round ${safeCurrentRound > 1 ? safeCurrentRound - 1 : safeCurrentRound} just ended. Quick break, then we go again.`;
@@ -266,6 +332,8 @@ export default function PodsPage() {
       return "Quick reset. When the next pod opens, you'll be able to enter.";
     }
     if (clock.moment === "missed_round") {
+      // Round 3 case is handled by the auto-redirect to /pods/done; no helper.
+      if (clock.upcomingRound === null) return null;
       return "When the next pod opens, you'll be able to enter.";
     }
     return null;
@@ -392,6 +460,22 @@ export default function PodsPage() {
                   }`}
                 >
                   {buttonLabel}
+                </button>
+              )}
+
+              {/*
+                Manual escape hatch back to /pods/done — appears only when the
+                user has already dismissed reveal AND tonight is over. Without
+                this, dismissing reveal would mean losing access to it for the
+                rest of the session.
+              */}
+              {tonightIsDone && revealDismissed && (
+                <button
+                  type="button"
+                  onClick={() => router.push("/pods/done")}
+                  className="mt-3 block w-full rounded-2xl border border-pink-500/40 px-4 py-2 text-[12px] md:text-sm font-semibold text-center text-pink-300 hover:bg-pink-500/10 transition"
+                >
+                  View tonight&apos;s reveal
                 </button>
               )}
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 type PodRoomRow = {
   room_id: string;
@@ -287,7 +288,7 @@ async function getPodIdFromQueueForRoom(args: {
     .maybeSingle<PodQueueRow>();
 
   if (error) {
-    console.warn("[pods/leave] pod id lookup from queue failed", error);
+    log.warn("[pods/leave] pod id lookup from queue failed", error);
     return null;
   }
 
@@ -346,7 +347,7 @@ async function markLeavingUserQueueInactive(args: {
     return updateResult;
   }
 
-  console.warn(
+  log.warn(
     "[pods/leave] status left update failed, deleting leaving queue row",
     updateResult.error
   );

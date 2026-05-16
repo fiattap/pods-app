@@ -10,6 +10,7 @@ import {
   isPreLaunch,
   normalizeCity,
 } from "@/lib/pods/timing";
+import { log } from "@/lib/log";
 
 type QueueStatus = "waiting" | "matched";
 
@@ -475,7 +476,7 @@ async function releaseRoundLock(
     .eq("lock_key", lockKey);
 
   if (error) {
-    console.log("[pods/match] releaseRoundLock error", {
+    log.debug("[pods/match] releaseRoundLock error", {
       lockKey,
       error,
     });
@@ -736,7 +737,7 @@ async function backfillPodRoomMetadataIfMissing(
     .in("id", userIds);
 
   if (profilesError) {
-    console.log("[pods/match] backfillPodRoomMetadataIfMissing profiles error", {
+    log.debug("[pods/match] backfillPodRoomMetadataIfMissing profiles error", {
       roomId: room.room_id,
       error: profilesError,
     });
@@ -767,7 +768,7 @@ async function backfillPodRoomMetadataIfMissing(
     .eq("room_id", room.room_id);
 
   if (updateError) {
-    console.log("[pods/match] backfillPodRoomMetadataIfMissing update error", {
+    log.debug("[pods/match] backfillPodRoomMetadataIfMissing update error", {
       roomId: room.room_id,
       error: updateError,
     });
@@ -779,7 +780,7 @@ async function backfillPodRoomMetadataIfMissing(
   room.user_a_city = payload.user_a_city;
   room.user_b_city = payload.user_b_city;
 
-  console.log("[pods/match] backfilled pod_rooms metadata", {
+  log.debug("[pods/match] backfilled pod_rooms metadata", {
     roomId: room.room_id,
     payload,
   });
@@ -967,7 +968,7 @@ async function cleanupFailedMatchArtifacts(
   roomId: string,
   userIds: string[]
 ) {
-  console.log("[pods/match] cleanupFailedMatchArtifacts", {
+  log.debug("[pods/match] cleanupFailedMatchArtifacts", {
     podId,
     roundNumber,
     roomId,
@@ -1118,7 +1119,7 @@ async function forceQueueMatchedForUser(
     .eq("round_number", roundNumber);
 
   if (error) {
-    console.log("[pods/match] forceQueueMatchedForUser error", {
+    log.debug("[pods/match] forceQueueMatchedForUser error", {
       userId,
       podId,
       roundNumber,
@@ -1164,7 +1165,7 @@ async function returnMatchedIfReady(
     readyResult.room.room_id
   );
 
-  console.log("[pods/match] returning ready room", {
+  log.debug("[pods/match] returning ready room", {
     source,
     userId,
     podId,
@@ -1187,7 +1188,7 @@ async function materializeFlexibleRound(
   podId: string,
   roundNumber: number
 ) {
-  console.log("[pods/match] materializeFlexibleRound:start", {
+  log.debug("[pods/match] materializeFlexibleRound:start", {
     podId,
     roundNumber,
   });
@@ -1195,7 +1196,7 @@ async function materializeFlexibleRound(
   const lockedUsersResult = await getLockedUserIds(supabase, podId, roundNumber);
 
   if (lockedUsersResult.error || !lockedUsersResult.lockedUserIds) {
-    console.log("[pods/match] materializeFlexibleRound:lockedUsersError", {
+    log.debug("[pods/match] materializeFlexibleRound:lockedUsersError", {
       podId,
       roundNumber,
       error: lockedUsersResult.error,
@@ -1222,7 +1223,7 @@ async function materializeFlexibleRound(
     !blockedCurrentNightResult.blockedUserIds ||
     !blockedCurrentNightResult.blockedPairKeys
   ) {
-    console.log("[pods/match] materializeFlexibleRound:blockedNightStateError", {
+    log.debug("[pods/match] materializeFlexibleRound:blockedNightStateError", {
       podId,
       roundNumber,
       error: blockedCurrentNightResult.error,
@@ -1252,7 +1253,7 @@ async function materializeFlexibleRound(
     .order("created_at", { ascending: true });
 
   if (waitingError) {
-    console.log("[pods/match] materializeFlexibleRound:waitingRowsError", {
+    log.debug("[pods/match] materializeFlexibleRound:waitingRowsError", {
       podId,
       roundNumber,
       error: waitingError,
@@ -1276,7 +1277,7 @@ async function materializeFlexibleRound(
     (row) => !lockedUserIds.has(row.user_id) && !blockedUserIds.has(row.user_id)
   );
 
-  console.log("[pods/match] materializeFlexibleRound:waitingPool", {
+  log.debug("[pods/match] materializeFlexibleRound:waitingPool", {
     podId,
     roundNumber,
     rawWaitingCount: waitingRows.length,
@@ -1305,7 +1306,7 @@ async function materializeFlexibleRound(
     .in("id", waitingUserIds);
 
   if (waitingProfilesError) {
-    console.log("[pods/match] materializeFlexibleRound:waitingProfilesError", {
+    log.debug("[pods/match] materializeFlexibleRound:waitingProfilesError", {
       podId,
       roundNumber,
       error: waitingProfilesError,
@@ -1337,7 +1338,7 @@ async function materializeFlexibleRound(
     blockedPairKeys: new Set([...blockedPairKeys]),
   });
 
-  console.log("[pods/match] materializeFlexibleRound:pairsBuilt", {
+  log.debug("[pods/match] materializeFlexibleRound:pairsBuilt", {
     podId,
     roundNumber,
     pairCount: pairs.length,
@@ -1383,7 +1384,7 @@ async function materializeFlexibleRound(
       pair.userAQueue.user_id === userAId ? pair.userBProfile : pair.userAProfile;
     const roomStartedAt = getDebugAdjustedNow().toISOString();
 
-    console.log("[pods/match] pairCandidate:start", {
+    log.debug("[pods/match] pairCandidate:start", {
       podId,
       roundNumber,
       roomId,
@@ -1395,7 +1396,7 @@ async function materializeFlexibleRound(
     });
 
     if (blockedPairKeys.has(pairKey)) {
-      console.log("[pods/match] pairCandidate:skippedAlreadyBlocked", {
+      log.debug("[pods/match] pairCandidate:skippedAlreadyBlocked", {
         podId,
         roundNumber,
         userAId,
@@ -1412,7 +1413,7 @@ async function materializeFlexibleRound(
     );
 
     if (rematchDecision.error) {
-      console.log("[pods/match] pairCandidate:rematchDecisionError", {
+      log.debug("[pods/match] pairCandidate:rematchDecisionError", {
         podId,
         roundNumber,
         userAId,
@@ -1431,7 +1432,7 @@ async function materializeFlexibleRound(
     }
 
     if (rematchDecision.blocked) {
-      console.log("[pods/match] rematch blocked", {
+      log.debug("[pods/match] rematch blocked", {
         podId,
         roundNumber,
         userAId,
@@ -1452,7 +1453,7 @@ async function materializeFlexibleRound(
       .maybeSingle();
 
     if (existingCurrentNightMatchResult.error) {
-      console.log("[pods/match] pairCandidate:existingNightMatchError", {
+      log.debug("[pods/match] pairCandidate:existingNightMatchError", {
         podId,
         roundNumber,
         userAId,
@@ -1471,7 +1472,7 @@ async function materializeFlexibleRound(
     }
 
     if (existingCurrentNightMatchResult.data) {
-      console.log("[pods/match] pairCandidate:duplicateNightMatchBeforeLock", {
+      log.debug("[pods/match] pairCandidate:duplicateNightMatchBeforeLock", {
         podId,
         roundNumber,
         userAId,
@@ -1492,7 +1493,7 @@ async function materializeFlexibleRound(
     );
 
     if (queueAState.error || queueBState.error) {
-      console.log("[pods/match] pairCandidate:queueStateReadError", {
+      log.debug("[pods/match] pairCandidate:queueStateReadError", {
         podId,
         roundNumber,
         userAId,
@@ -1532,7 +1533,7 @@ async function materializeFlexibleRound(
       queueBRow.room_id == null;
 
     if (!queueAReady || !queueBReady) {
-      console.log("[pods/match] pairCandidate:queueNotClaimableBeforeLock", {
+      log.debug("[pods/match] pairCandidate:queueNotClaimableBeforeLock", {
         podId,
         roundNumber,
         userAId,
@@ -1544,7 +1545,7 @@ async function materializeFlexibleRound(
       continue;
     }
 
-    console.log("[pods/match] INSERT pod_match_participants", {
+    log.debug("[pods/match] INSERT pod_match_participants", {
       podId,
       roundNumber,
       userAId,
@@ -1570,7 +1571,7 @@ async function materializeFlexibleRound(
       ]);
 
     if (participantInsertError) {
-      console.log("[pods/match] INSERT pod_match_participants ERROR", {
+      log.debug("[pods/match] INSERT pod_match_participants ERROR", {
         podId,
         roundNumber,
         userAId,
@@ -1600,7 +1601,7 @@ async function materializeFlexibleRound(
       };
     }
 
-    console.log("[pods/match] INSERT pod_match_participants SUCCESS", {
+    log.debug("[pods/match] INSERT pod_match_participants SUCCESS", {
       podId,
       roundNumber,
       userAId,
@@ -1615,7 +1616,7 @@ async function materializeFlexibleRound(
     );
 
     if (rematchDecisionAfterLock.error) {
-      console.log("[pods/match] pairCandidate:rematchDecisionAfterLockError", {
+      log.debug("[pods/match] pairCandidate:rematchDecisionAfterLockError", {
         podId,
         roundNumber,
         userAId,
@@ -1640,7 +1641,7 @@ async function materializeFlexibleRound(
     }
 
     if (rematchDecisionAfterLock.blocked) {
-      console.log("[pods/match] pairCandidate:blockedAfterLock", {
+      log.debug("[pods/match] pairCandidate:blockedAfterLock", {
         podId,
         roundNumber,
         userAId,
@@ -1670,7 +1671,7 @@ async function materializeFlexibleRound(
       .maybeSingle();
 
     if (duplicateNightMatchAfterLockError) {
-      console.log("[pods/match] pairCandidate:duplicateNightMatchAfterLockError", {
+      log.debug("[pods/match] pairCandidate:duplicateNightMatchAfterLockError", {
         podId,
         roundNumber,
         userAId,
@@ -1695,7 +1696,7 @@ async function materializeFlexibleRound(
     }
 
     if (duplicateNightMatchAfterLock) {
-      console.log("[pods/match] pairCandidate:duplicateNightMatchAfterLockFound", {
+      log.debug("[pods/match] pairCandidate:duplicateNightMatchAfterLockFound", {
         podId,
         roundNumber,
         userAId,
@@ -1719,7 +1720,7 @@ async function materializeFlexibleRound(
     );
 
     if (queueAClaimResult.error || queueAClaimResult.updatedCount !== 1) {
-      console.log("[pods/match] queueA claim failed", {
+      log.debug("[pods/match] queueA claim failed", {
         podId,
         roundNumber,
         userAId,
@@ -1737,7 +1738,7 @@ async function materializeFlexibleRound(
       continue;
     }
 
-    console.log("[pods/match] queueA claim success", {
+    log.debug("[pods/match] queueA claim success", {
       podId,
       roundNumber,
       userAId,
@@ -1757,7 +1758,7 @@ async function materializeFlexibleRound(
         canonicalUserBQueue.id
       );
 
-      console.log("[pods/match] queueB claim failed", {
+      log.debug("[pods/match] queueB claim failed", {
         podId,
         roundNumber,
         userAId,
@@ -1776,7 +1777,7 @@ async function materializeFlexibleRound(
       continue;
     }
 
-    console.log("[pods/match] queueB claim success", {
+    log.debug("[pods/match] queueB claim success", {
       podId,
       roundNumber,
       userBId,
@@ -1784,7 +1785,7 @@ async function materializeFlexibleRound(
       queueId: canonicalUserBQueue.id,
     });
 
-    console.log("[pods/match] queue claims success", {
+    log.debug("[pods/match] queue claims success", {
       podId,
       roundNumber,
       userAId,
@@ -1792,7 +1793,7 @@ async function materializeFlexibleRound(
       roomId,
     });
 
-    console.log("[pods/match] UPSERT pod_rooms", {
+    log.debug("[pods/match] UPSERT pod_rooms", {
       podId,
       roundNumber,
       userAId,
@@ -1822,7 +1823,7 @@ async function materializeFlexibleRound(
     );
 
     if (roomError) {
-      console.log("[pods/match] UPSERT pod_rooms ERROR", {
+      log.debug("[pods/match] UPSERT pod_rooms ERROR", {
         podId,
         roundNumber,
         userAId,
@@ -1839,7 +1840,7 @@ async function materializeFlexibleRound(
       continue;
     }
 
-    console.log("[pods/match] UPSERT pod_rooms SUCCESS", {
+    log.debug("[pods/match] UPSERT pod_rooms SUCCESS", {
       podId,
       roundNumber,
       userAId,
@@ -1848,7 +1849,7 @@ async function materializeFlexibleRound(
       roomStartedAt,
     });
 
-    console.log("[pods/match] INSERT pod_matches", {
+    log.debug("[pods/match] INSERT pod_matches", {
       podId,
       roundNumber,
       userAId,
@@ -1865,7 +1866,7 @@ async function materializeFlexibleRound(
     });
 
     if (matchError) {
-      console.log("[pods/match] INSERT pod_matches ERROR", {
+      log.debug("[pods/match] INSERT pod_matches ERROR", {
         podId,
         roundNumber,
         userAId,
@@ -1886,7 +1887,7 @@ async function materializeFlexibleRound(
       continue;
     }
 
-    console.log("[pods/match] INSERT pod_matches SUCCESS", {
+    log.debug("[pods/match] INSERT pod_matches SUCCESS", {
       podId,
       roundNumber,
       userAId,
@@ -1909,7 +1910,7 @@ async function materializeFlexibleRound(
     blockedUserIds.add(userBId);
     successfulMatches += 2;
 
-    console.log("[pods/match] pairCandidate:completed", {
+    log.debug("[pods/match] pairCandidate:completed", {
       podId,
       roundNumber,
       userAId,
@@ -1921,7 +1922,7 @@ async function materializeFlexibleRound(
   }
 
   if (successfulMatches === 0) {
-    console.log("[pods/match] materializeFlexibleRound:noSuccessfulMatches", {
+    log.debug("[pods/match] materializeFlexibleRound:noSuccessfulMatches", {
       podId,
       roundNumber,
     });
@@ -1936,7 +1937,7 @@ async function materializeFlexibleRound(
     };
   }
 
-  console.log("[pods/match] materializeFlexibleRound:success", {
+  log.debug("[pods/match] materializeFlexibleRound:success", {
     podId,
     roundNumber,
     successfulMatches,
@@ -1954,7 +1955,7 @@ async function materializeFlexibleRound(
 
 export async function POST(request: Request) {
   try {
-    console.log("MATCH ROUTE VERSION 2026-04-15-SINGLE-READY-PATH");
+    log.debug("MATCH ROUTE VERSION 2026-04-15-SINGLE-READY-PATH");
 
     if (isPreLaunch()) {
       return json(
@@ -1971,7 +1972,7 @@ export async function POST(request: Request) {
     const supabase = await createClient();
 
     const body = await request.json().catch(() => null);
-    console.log("[pods/match] request body", body);
+    log.debug("[pods/match] request body", body);
 
     const requestedUserId = body?.userId;
     const requestedRoundNumber = body?.roundNumber;
@@ -2004,7 +2005,7 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser();
 
     if (authError) {
-      console.log("[pods/match] auth getUser error", authError);
+      log.debug("[pods/match] auth getUser error", authError);
 
       return json(
         {
@@ -2016,12 +2017,12 @@ export async function POST(request: Request) {
     }
 
     if (!authedUser) {
-      console.log("[pods/match] auth missing user");
+      log.debug("[pods/match] auth missing user");
       return json({ status: "error", error: "Not authenticated." }, 401);
     }
 
     if (authedUser.id !== requestedUserId) {
-      console.log("[pods/match] auth user mismatch", {
+      log.debug("[pods/match] auth user mismatch", {
         authedUserId: authedUser.id,
         requestedUserId,
       });
@@ -2041,7 +2042,7 @@ export async function POST(request: Request) {
       .maybeSingle<ProfileRow>();
 
     if (currentUserProfileError) {
-      console.log("[pods/match] currentUserProfileError", {
+      log.debug("[pods/match] currentUserProfileError", {
         userId,
         error: currentUserProfileError,
       });
@@ -2058,7 +2059,7 @@ export async function POST(request: Request) {
     const currentUserProfile = currentUserProfileRaw as ProfileRow | null;
 
     if (!currentUserProfile) {
-      console.log("[pods/match] current user profile missing", { userId });
+      log.debug("[pods/match] current user profile missing", { userId });
       return json({ status: "error", error: "Your profile was not found." }, 404);
     }
 
@@ -2066,7 +2067,7 @@ export async function POST(request: Request) {
       !normalizeGender(currentUserProfile.gender) ||
       !normalizeInterestedIn(currentUserProfile.interested_in)
     ) {
-      console.log("[pods/match] profile missing gender/interested_in", {
+      log.debug("[pods/match] profile missing gender/interested_in", {
         userId,
         gender: currentUserProfile.gender,
         interested_in: currentUserProfile.interested_in,
@@ -2097,7 +2098,7 @@ export async function POST(request: Request) {
       debugAdjustedNow
     );
 
-    console.log("[pods/match] session resolved", {
+    log.debug("[pods/match] session resolved", {
       userId,
       requestedPodId,
       requestedRoundNumber,
@@ -2109,7 +2110,7 @@ export async function POST(request: Request) {
       serverNow: debugAdjustedNow.toISOString(),
     });
 
-    console.log("[pods/match] entry state resolved", {
+    log.debug("[pods/match] entry state resolved", {
       userId,
       podId,
       roundNumber,
@@ -2121,7 +2122,7 @@ export async function POST(request: Request) {
     });
 
     if (requestedPodId && requestedPodId !== podId) {
-      console.log("[pods/match] pod session mismatch", {
+      log.debug("[pods/match] pod session mismatch", {
         requestedPodId,
         derivedPodId: podId,
         userId,
@@ -2141,7 +2142,7 @@ export async function POST(request: Request) {
       requestedRoundNumber &&
       requestedRoundNumber !== roundNumber
     ) {
-      console.log("[pods/match] ignoring stale client round hint", {
+      log.debug("[pods/match] ignoring stale client round hint", {
         userId,
         requestedRoundNumber,
         canonicalRoundNumber: roundNumber,
@@ -2159,7 +2160,7 @@ export async function POST(request: Request) {
       );
 
       if (readyResult.error) {
-        console.log("[pods/match] readyBeforeAnythingElse error", {
+        log.debug("[pods/match] readyBeforeAnythingElse error", {
           userId,
           podId,
           roundNumber,
@@ -2188,7 +2189,7 @@ export async function POST(request: Request) {
     );
 
     if (existingSelfQueueResult.error) {
-      console.log("[pods/match] existing self queue read error", {
+      log.debug("[pods/match] existing self queue read error", {
         userId,
         podId,
         roundNumber,
@@ -2223,7 +2224,7 @@ export async function POST(request: Request) {
     }
 
     if (!hasExistingRoundQueue && !entryState.canEnterRound) {
-      console.log("[pods/match] new entry blocked by entry state", {
+      log.debug("[pods/match] new entry blocked by entry state", {
         userId,
         podId,
         roundNumber,
@@ -2257,7 +2258,7 @@ export async function POST(request: Request) {
     );
 
     if (selfQueueResult.error || !selfQueueResult.row) {
-      console.log("[pods/match] ensureSelfQueueWaiting error", {
+      log.debug("[pods/match] ensureSelfQueueWaiting error", {
         userId,
         podId,
         roundNumber,
@@ -2274,7 +2275,7 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log("[pods/match] self queued/waiting", {
+    log.debug("[pods/match] self queued/waiting", {
       userId,
       podId,
       roundNumber,
@@ -2291,7 +2292,7 @@ export async function POST(request: Request) {
       );
 
       if (readyResult.error) {
-        console.log("[pods/match] readyAfterQueue error", {
+        log.debug("[pods/match] readyAfterQueue error", {
           userId,
           podId,
           roundNumber,
@@ -2325,7 +2326,7 @@ export async function POST(request: Request) {
       );
 
       if (readyResult.error) {
-        console.log("[pods/match] readyWhileLockBusy error", {
+        log.debug("[pods/match] readyWhileLockBusy error", {
           userId,
           podId,
           roundNumber,
@@ -2353,7 +2354,7 @@ export async function POST(request: Request) {
       );
 
       if (verifiedQueueResult.error) {
-        console.log("[pods/match] lock busy and queue verification failed", {
+        log.debug("[pods/match] lock busy and queue verification failed", {
           userId,
           podId,
           roundNumber,
@@ -2392,7 +2393,7 @@ export async function POST(request: Request) {
     }
 
     if (materializeResult.error) {
-      console.log("[pods/match] materializeFlexibleRound error", {
+      log.debug("[pods/match] materializeFlexibleRound error", {
         userId,
         podId,
         roundNumber,
@@ -2409,7 +2410,7 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log("[pods/match] materializeFlexibleRound result", {
+    log.debug("[pods/match] materializeFlexibleRound result", {
       userId,
       podId,
       roundNumber,
@@ -2426,7 +2427,7 @@ export async function POST(request: Request) {
       );
 
       if (readyResult.error) {
-        console.log("[pods/match] readyAfterMaterialize error", {
+        log.debug("[pods/match] readyAfterMaterialize error", {
           userId,
           podId,
           roundNumber,
@@ -2456,7 +2457,7 @@ export async function POST(request: Request) {
       );
 
       if (verifiedQueueResult.error) {
-        console.log("[pods/match] finalizing waiting response blocked by queue verification", {
+        log.debug("[pods/match] finalizing waiting response blocked by queue verification", {
           userId,
           podId,
           roundNumber,
@@ -2490,7 +2491,7 @@ export async function POST(request: Request) {
     );
 
     if (verifiedQueueResult.error) {
-      console.log("[pods/match] final waiting response blocked by queue verification", {
+      log.debug("[pods/match] final waiting response blocked by queue verification", {
         userId,
         podId,
         roundNumber,
@@ -2508,7 +2509,7 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log("[pods/match] returning waiting response", {
+    log.debug("[pods/match] returning waiting response", {
       userId,
       podId,
       roundNumber,
@@ -2527,7 +2528,7 @@ export async function POST(request: Request) {
       requiredCount: MIN_USERS_PER_ROUND,
     });
   } catch (error) {
-    console.log("[pods/match] POST catch error", error);
+    log.debug("[pods/match] POST catch error", error);
 
     return json(
       {

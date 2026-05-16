@@ -10,6 +10,7 @@ import {
   type PodPhase,
   type RoundEntryReason,
 } from "@/lib/pods/timing";
+import { log } from "@/lib/log";
 
 type QueueStatus = "waiting" | "matched" | "left";
 type PodStatusState = "none" | "waiting" | "matched" | "closedForTonight";
@@ -97,7 +98,7 @@ function buildStatus(params: {
   const serverNow = getDebugAdjustedNow();
   const roundNumber = params.roundNumber ?? params.currentRound ?? null;
 
-  console.log("[pods/status] canonical phase resolved", {
+  log.debug("[pods/status] canonical phase resolved", {
     podId: params.podId ?? null,
     roundNumber,
     canonicalPhase: params.phase,
@@ -318,7 +319,7 @@ export async function GET() {
     const entryState = getRoundEntryState(city, currentRound, debugAdjustedNow);
     const entryFields = entryStatusFields(entryState);
 
-    console.log("[pods/status] entry state resolved", {
+    log.debug("[pods/status] entry state resolved", {
       podId,
       currentRound,
       phase: entryState.phase,
@@ -390,7 +391,7 @@ export async function GET() {
     });
 
     if (matchRows.length > 0 && !matchedRoomId) {
-      console.log("[pods/status] historical matches ignored for restore", {
+      log.debug("[pods/status] historical matches ignored for restore", {
         userId: user.id,
         podId,
         currentRound,
